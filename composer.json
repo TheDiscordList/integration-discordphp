@@ -1,0 +1,68 @@
+{
+    "name": "thediscordlist/integration-discordphp",
+    "description": "Official TheDiscordList integration for DiscordPHP: auto-post server count, shard heartbeats and slash commands, and verify inbound webhooks.",
+    "type": "library",
+    "license": "MIT",
+    "keywords": [
+        "discord",
+        "discordphp",
+        "discord-php",
+        "discord-bot",
+        "reactphp",
+        "thediscordlist",
+        "bot-list",
+        "webhooks"
+    ],
+    "homepage": "https://thediscordlist.com",
+    "authors": [
+        {
+            "name": "TheDiscordList",
+            "homepage": "https://thediscordlist.com"
+        }
+    ],
+    "support": {
+        "issues": "https://github.com/TheDiscordList/integration-discordphp/issues",
+        "source": "https://github.com/TheDiscordList/integration-discordphp",
+        "docs": "https://github.com/TheDiscordList/integration-discordphp#readme"
+    },
+    "require": {
+        "php": ">=8.1"
+    },
+    "require-dev": {
+        "guzzlehttp/psr7": "^2.7",
+        "laravel/pint": "^1.18",
+        "phpstan/phpstan": "^2.1",
+        "phpunit/phpunit": "^11.5",
+        "psr/http-factory": "^1.0",
+        "psr/http-server-handler": "^1.0",
+        "team-reflex/discord-php": "^10.1"
+    },
+    "suggest": {
+        "team-reflex/discord-php": "Required by Autoposter (^10.1). Not needed for webhook verification alone.",
+        "psr/http-server-handler": "Required by the PSR-15 WebhookHandler.",
+        "psr/http-factory": "Required by the PSR-15 WebhookHandler, together with any PSR-17 implementation."
+    },
+    "conflict": {
+        "team-reflex/discord-php": "<10.1 || >=11.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "TheDiscordList\\DiscordPHP\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "TheDiscordList\\DiscordPHP\\Tests\\": "tests/"
+        }
+    },
+    "scripts": {
+        "test": "phpunit",
+        "analyse": "phpstan analyse --memory-limit=1G",
+        "lint": "pint --test",
+        "format": "pint"
+    },
+    "config": {
+        "sort-packages": true
+    },
+    "minimum-stability": "stable"
+}

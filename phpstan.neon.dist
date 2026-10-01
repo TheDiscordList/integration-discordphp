@@ -1,0 +1,12 @@
+parameters:
+    level: 8
+    # The lowest PHP the package supports, so 8.2+ syntax is reported.
+    phpVersion: 80100
+    paths:
+        - src
+        - examples
+    # DiscordPHP declares its magic properties as always set, but they read
+    # null until the gateway is ready, so those checks have to stay in.
+    treatPhpDocTypesAsCertain: false
+    parallel:
+        maximumNumberOfProcesses: 4
