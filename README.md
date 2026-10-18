@@ -167,8 +167,8 @@ every timer and detaches every listener; `$discord->close()` does the same.
 
 ## Webhooks
 
-The `Webhooks` namespace never touches DiscordPHP or ReactPHP, so it works in
-any PHP application.
+The `Webhooks` namespace never needs DiscordPHP, and needs ReactPHP only when
+your callback returns a promise, so it works in any PHP application.
 
 ### Verifying by hand
 
@@ -180,7 +180,8 @@ try {
     $event = Verifier::verify($rawBody, $signatureHeader, $secret); // tolerance: 300s
 } catch (VerificationException $error) {
     // $error->reason is an ErrorCode: MissingSignature, MalformedSignature,
-    // StaleTimestamp, InvalidSignature or MalformedBody. Answer 400.
+    // StaleTimestamp, InvalidSignature or MalformedBody. Answer 401 for a
+    // missing or invalid signature, 400 otherwise.
 }
 ```
 
@@ -240,10 +241,18 @@ $handler = new WebhookHandler(
 );
 ```
 
-It answers `204` once your callback returns, for every event name, `400` when
-verification fails, `405` for anything but POST, and `500` when your callback
-throws so the delivery is retried. It is also invokable, so
+It answers `204` once your callback returns, for every event name, `401` for a
+missing or invalid signature, `400` for any other verification failure, `413`
+for a body over 1 MiB, `405` for anything but POST, and `500` when your
+callback throws so the delivery is retried. A blank secret throws at
+construction. It is also invokable, so
 `new React\Http\HttpServer($loop, $handler)` serves it on the bot's own loop.
+
+Your callback may return a ReactPHP promise. Served by `HttpServer`, the
+handler waits up to 8 seconds for it (`timeout:`): `204` when it fulfils, `500`
+when it rejects, and `202` if it is still running, so the sender's 10-second
+timeout is never hit. A synchronous PSR-15 `handle()` cannot wait and answers
+`202` for any promise. A rejection always reaches `onError`.
 `examples/bot.php` shows the same with `Verifier` alone and no extra packages.
 
 ### Events
