@@ -35,7 +35,7 @@ final class Autoposter implements EventEmitterInterface
 {
     use EventEmitterTrait;
 
-    public const VERSION = '0.1.0';
+    public const VERSION = '0.2.0';
 
     public const DEFAULT_BASE_URL = 'https://thediscordlist.com/api';
 

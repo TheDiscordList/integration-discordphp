@@ -60,7 +60,7 @@ final class AutoposterTest extends TestCase
         $this->assertSame('{"server_count":3,"shard_count":1}', $stats[0]['raw']);
         $this->assertSame('Bearer tok', $stats[0]['headers']['Authorization']);
         $this->assertSame('application/json', $stats[0]['headers']['Content-Type']);
-        $this->assertSame('TheDiscordList-discordphp/0.1.0 (+https://github.com/TheDiscordList/integration-discordphp)', $stats[0]['headers']['User-Agent']);
+        $this->assertSame('TheDiscordList-discordphp/0.2.0 (+https://github.com/TheDiscordList/integration-discordphp)', $stats[0]['headers']['User-Agent']);
         $this->assertContains(['posted', 'stats', 200, null], $this->events);
     }
 
