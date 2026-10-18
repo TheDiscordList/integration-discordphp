@@ -184,6 +184,9 @@ try {
 }
 ```
 
+A blank `$secret` throws an `InvalidArgumentException`: nothing could ever
+verify against it.
+
 `$rawBody` must be the exact bytes that arrived. TheDiscordList signs the JSON
 string it sends, so `json_encode($request->all())` escapes slashes and unicode
 differently and can never verify: the signature covers bytes, not meaning.
