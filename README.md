@@ -300,18 +300,20 @@ enqueue time, not send time, so never use it for freshness.
 - **Rate limits are shared.** The API counts stats and commands against one
   60/min budget keyed by client IP (heartbeats have their own 120/min). On a
   `429` this package suspends stats and commands for `Retry-After` (or until
-  `X-RateLimit-Reset`) plus up to 2s of jitter, but keeps heartbeating: a stale
-  number beats a false "down" on your status page. On shared hosting, other
-  bots behind the same egress IP count against you.
+  `X-RateLimit-Reset`; 60s without either, at most an hour) plus up to 2s of
+  jitter, but keeps heartbeating: a stale number beats a false "down" on your
+  status page. On shared hosting, other bots behind the same egress IP count
+  against you.
 - **`401` disables everything.** One log line, every publisher stops; fix the
   token and call any `postX()` to resume.
 - **`404` never means "bad token".** It means the id is unknown or belongs to a
   server listing. That publisher disables itself; set `botId` if your
   application id differs from your bot's user id.
 - **`409` on commands** means the listing is not set up for slash commands.
-- `400`/`422` are logged once per status and not retried; the next run sends
-  fresh data. `5xx`, timeouts and network errors are retried up to 3 attempts
-  with backoff, then wait for the next run.
+- Any other `4xx` but `408` and `425` is logged once per status and not
+  retried; the next run sends fresh data. `408`, `425`, `5xx`, timeouts and
+  network errors are retried up to 3 attempts with backoff, and a `429` once
+  its wait is over, unless the next run comes first.
 - An unchanged count is not re-posted until 30 minutes have passed: every stats
   post fires a `bot.stats_reported` webhook and the server does not dedupe.
 - DiscordPHP evicts a guild from its cache when it goes unavailable during a

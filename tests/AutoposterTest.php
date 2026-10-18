@@ -347,6 +347,19 @@ final class AutoposterTest extends TestCase
         $this->assertTrue($this->settle($poster->postCommands())->ok);
     }
 
+    public function test_429_is_retried_once_its_wait_is_over_if_that_beats_the_next_run(): void
+    {
+        $this->transport->respond('stats', new Response(429, ['Retry-After' => '30']));
+        $this->poster();
+        $this->discord->fireInit();
+
+        $this->loop->advance(34.9);
+        $this->assertCount(1, $this->transport->to('stats'));
+        $this->loop->advance(2.2);
+        $this->assertCount(2, $this->transport->to('stats'));
+        $this->assertContains(['posted', 'stats', 200, null], $this->events);
+    }
+
     public function test_5xx_is_retried_with_backoff(): void
     {
         $this->transport->respond('stats', new Response(503), new Response(502));

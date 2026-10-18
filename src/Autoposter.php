@@ -74,13 +74,13 @@ final class Autoposter implements EventEmitterInterface
             return new self($discord);
         }
 
-        return self::create($discord, $token, $options, new BrowserTransport($discord->getLoop()), static fn (): float => microtime(true));
+        return self::create($discord, $token, $options, new BrowserTransport($discord->getLoop()), static fn (): float => hrtime(true) / 1e9);
     }
 
     /**
      * @internal Takes the transport and clock that `attach()` defaults.
      *
-     * @param  Closure(): float  $clock  Unix seconds.
+     * @param  Closure(): float  $clock  Monotonic seconds.
      */
     public static function create(Discord $discord, string $token, Options $options, Transport $transport, Closure $clock): self
     {

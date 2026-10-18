@@ -56,8 +56,12 @@ final class ApiClientTest extends TestCase
         yield '401' => [401, Outcome::AUTH];
         yield '403' => [403, Outcome::PLAN];
         yield '404' => [404, Outcome::CONFIG];
+        yield '405' => [405, Outcome::PAYLOAD];
+        yield '408' => [408, Outcome::TRANSIENT];
         yield '409' => [409, Outcome::CONFIG];
+        yield '413' => [413, Outcome::PAYLOAD];
         yield '422' => [422, Outcome::PAYLOAD];
+        yield '425' => [425, Outcome::TRANSIENT];
         yield '429' => [429, Outcome::THROTTLED];
         yield '500' => [500, Outcome::TRANSIENT];
         yield '503' => [503, Outcome::TRANSIENT];
@@ -122,13 +126,26 @@ final class ApiClientTest extends TestCase
     public function test_429_honours_a_later_rate_limit_reset(): void
     {
         $client = $this->client();
-        $this->transport->respond('stats', new Response(429, ['Retry-After' => '1', 'X-RateLimit-Reset' => (string) ($this->now + 300)]));
+        // A Unix timestamp, while the client's own clock is monotonic.
+        $this->transport->respond('stats', new Response(429, ['Retry-After' => '1', 'X-RateLimit-Reset' => (string) (time() + 300)]));
         $client->post('/bots/42/stats', []);
 
-        $this->now += 299;
+        $this->now += 298;
         $this->assertSame(Outcome::DROPPED, $this->settle($client->post('/bots/42/stats', []))->kind);
-        $this->now += 3.1;
+        $this->now += 4.1;
         $this->assertSame(Outcome::OK, $this->settle($client->post('/bots/42/stats', []))->kind);
+    }
+
+    public function test_429_waits_at_most_an_hour(): void
+    {
+        $client = $this->client();
+        $this->transport->respond('stats', new Response(429, ['Retry-After' => '86400']));
+        $client->post('/bots/42/stats', []);
+
+        $this->assertGreaterThanOrEqual(3600.0, $client->suspendedFor());
+        $this->assertLessThanOrEqual(3602.0, $client->suspendedFor());
+        $this->now += 3602.1;
+        $this->assertSame(0.0, $client->suspendedFor());
     }
 
     private function client(string $token = 'tok', string $baseUrl = Autoposter::DEFAULT_BASE_URL): ApiClient
