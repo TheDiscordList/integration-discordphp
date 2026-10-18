@@ -126,7 +126,7 @@ final class WebhookHandlerTest extends TestCase
         $loop = new FakeLoop;
         $work = new Deferred;
         $handler = $this->promising($loop, $work->promise());
-        $status = $this->status($handler($this->request($this->body('listing.upvoted'))));
+        $status = $this->statusOf($handler($this->request($this->body('listing.upvoted'))));
 
         $loop->advance(7.9);
         $this->assertNull($status());
@@ -141,7 +141,7 @@ final class WebhookHandlerTest extends TestCase
         $loop = new FakeLoop;
         $work = new Deferred;
         $handler = $this->promising($loop, $work->promise());
-        $status = $this->status($handler($this->request($this->body('listing.upvoted'))));
+        $status = $this->statusOf($handler($this->request($this->body('listing.upvoted'))));
 
         $work->reject(new RuntimeException('database down'));
 
@@ -154,7 +154,7 @@ final class WebhookHandlerTest extends TestCase
         $loop = new FakeLoop;
         $work = new Deferred;
         $handler = $this->promising($loop, $work->promise());
-        $status = $this->status($handler($this->request($this->body('listing.upvoted'))));
+        $status = $this->statusOf($handler($this->request($this->body('listing.upvoted'))));
 
         $loop->advance(WebhookHandler::DEFAULT_TIMEOUT);
         $this->assertSame(202, $status());
@@ -201,7 +201,7 @@ final class WebhookHandlerTest extends TestCase
      * @param  ResponseInterface|PromiseInterface<ResponseInterface>  $response
      * @return Closure(): ?int The status, or null while the response is pending.
      */
-    private function status(ResponseInterface|PromiseInterface $response): Closure
+    private function statusOf(ResponseInterface|PromiseInterface $response): Closure
     {
         $status = null;
         resolve($response)->then(function (ResponseInterface $value) use (&$status): void {
