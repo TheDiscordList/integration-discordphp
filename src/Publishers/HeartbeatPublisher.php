@@ -20,6 +20,12 @@ final class HeartbeatPublisher extends Publisher
 
     public const MAX_INTERVAL = 60.0;
 
+    /** Added to every interval, so a fleet restarted together drifts apart. */
+    public const JITTER = 5.0;
+
+    /** An out-of-band beat waits until at least this long after the previous one. */
+    public const SOON_GAP = 10.0;
+
     /** The API caps `latency_ms` here. */
     public const MAX_LATENCY_MS = 600000;
 
@@ -37,6 +43,8 @@ final class HeartbeatPublisher extends Publisher
     private bool $ready = false;
 
     private float $lastSeen = 0.0;
+
+    private float $lastBeatAt = -INF;
 
     private ?int $latency = null;
 
@@ -67,7 +75,6 @@ final class HeartbeatPublisher extends Publisher
         }
 
         $this->after(0.0, fn () => $this->beat(false));
-        $this->resume();
     }
 
     public function post(): PromiseInterface
@@ -106,7 +113,7 @@ final class HeartbeatPublisher extends Publisher
 
     protected function resume(): void
     {
-        $this->every($this->interval, fn () => $this->beat(false));
+        $this->next($this->ctx->now());
     }
 
     /**
@@ -117,13 +124,7 @@ final class HeartbeatPublisher extends Publisher
     {
         $seconds = $outcome->kind === Outcome::OK ? ($outcome->body['next_beat_within_seconds'] ?? null) : null;
         if ((is_int($seconds) || is_float($seconds)) && $seconds > 0) {
-            $interval = self::clamp(round($seconds / 3));
-            if ($interval !== $this->interval) {
-                $this->interval = $interval;
-                if ($this->started && ! $this->stopped && $this->disabledReason === null) {
-                    $this->resume();
-                }
-            }
+            $this->interval = self::clamp(round($seconds / 3));
         }
 
         return parent::react($outcome);
@@ -133,8 +134,19 @@ final class HeartbeatPublisher extends Publisher
     private function beatNow(): void
     {
         if ($this->started && ! $this->stopped && $this->disabledReason === null) {
-            $this->after(1.0, fn () => $this->beat(false));
+            $this->after(max(1.0, self::SOON_GAP - ($this->ctx->now() - $this->lastBeatAt)), fn () => $this->beat(false));
         }
+    }
+
+    /** One-shot timers, each armed when the previous beat settles and never inside a plan suspension. */
+    private function next(float $startedAt): void
+    {
+        if (! $this->started || $this->stopped || $this->disabledReason !== null) {
+            return;
+        }
+        $now = $this->ctx->now();
+        $delay = $this->interval + mt_rand() / mt_getrandmax() * self::JITTER - ($now - $startedAt);
+        $this->after(max($delay, 1.0, $this->suspendedUntil - $now), fn () => $this->beat(false));
     }
 
     /** @return PromiseInterface<PostResult>|PostResult */
@@ -154,10 +166,14 @@ final class HeartbeatPublisher extends Publisher
             return PostResult::skipped('cluster-count-unknown');
         }
         if (! $manual && $this->ctx->now() < $this->suspendedUntil) {
+            $this->next($this->ctx->now());
+
             return PostResult::skipped('plan');
         }
         $botId = $this->ctx->botId();
         if ($botId === null) {
+            $this->next($this->ctx->now());
+
             return PostResult::skipped('no-bot-id');
         }
 
@@ -171,13 +187,15 @@ final class HeartbeatPublisher extends Publisher
         }
 
         $this->inFlight = true;
+        $startedAt = $this->lastBeatAt = $this->ctx->now();
 
         return $this->send("/bots/{$botId}/heartbeat", [
             'cluster' => $this->ctx->topology->clusterId,
             'cluster_count' => $clusterCount,
             'shards' => [$shard],
-        ], true, $this->interval)->finally(function (): void {
+        ], true, $this->interval)->finally(function () use ($startedAt): void {
             $this->inFlight = false;
+            $this->next($startedAt);
         });
     }
 

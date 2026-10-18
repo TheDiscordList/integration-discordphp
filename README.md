@@ -36,7 +36,7 @@ It starts three publishers:
 | Publisher | What it sends | Cadence |
 | --- | --- | --- |
 | Stats | `server_count`, `shard_count` | 5s after `init`, then every 5 min, debounced 20s on guild join/leave |
-| Heartbeat | this shard's status, gateway latency and guild count | every ~30s, plus 1s after a gateway error or reconnect |
+| Heartbeat | this shard's status, gateway latency and guild count | every 30–35s, plus once after a gateway error or reconnect (at least 10s after the previous beat) |
 | Commands | your global application commands | once, 10s after `init` |
 
 Your **stats token** is on the listing's manage page, under the API tab. It is
@@ -111,7 +111,7 @@ Autoposter::attach($discord, $token, new Options(
     statsMinGap: 60.0,
 
     heartbeat: true,
-    heartbeatInterval: 30.0,                // starting cadence; retuned from the API response
+    heartbeatInterval: 30.0,                // starting cadence, 15–60; retuned from the API response
 
     commands: true,
     postEmptyCommands: false,

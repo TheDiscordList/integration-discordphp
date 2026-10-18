@@ -53,7 +53,7 @@ abstract class Publisher
     /** @return PromiseInterface<PostResult> */
     abstract public function post(): PromiseInterface;
 
-    /** (Re)starts the periodic cadence, if the publisher has one. */
+    /** (Re)starts the cadence, if the publisher has one. */
     abstract protected function resume(): void;
 
     public function stop(): void
