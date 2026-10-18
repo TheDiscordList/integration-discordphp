@@ -260,6 +260,7 @@ timeout is never hit. A synchronous PSR-15 `handle()` cannot wait and answers
 | Event | Fires for | `data` |
 | --- | --- | --- |
 | `listing.bumped` | servers, bots | `points`, `bumped_at`, `next_bump_at`, `user` |
+| `listing.bump_ready` | servers, bots | `ready_at` |
 | `listing.upvoted` | servers, bots | `voted_at`, `total_upvotes`, `user` |
 | `server.joined` | servers only | `joined_at`, `user` |
 | `bot.added` | bots | `added_at`, `user` |
@@ -272,7 +273,8 @@ Every payload carries `id`, `event`, `created_at`, `listing` (`id`, `type`,
 Two of them are not what their names suggest. `bot.added` is a **click** event,
 dispatched on the install hand-off; Discord never tells anyone whether the
 install completed. And `bot.stats_reported` is not an echo of your own POST: it
-also fires when the owner edits the listing in the web UI. `created_at` is
+also fires when the owner edits the listing in the web UI, and on the
+heartbeat's stats forward. `created_at` is
 enqueue time, not send time, so never use it for freshness.
 
 ### Rules for a healthy endpoint

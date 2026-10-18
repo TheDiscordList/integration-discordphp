@@ -140,6 +140,16 @@ final class WebhookVerifierTest extends TestCase
         $this->assertSame('listing.renamed', Verifier::verify($body, $this->header($body, self::T), self::SECRET, now: self::T)['event']);
     }
 
+    public function test_bump_ready_parses(): void
+    {
+        $body = '{"id":"d3","event":"listing.bump_ready","created_at":"2026-10-18T12:00:00+00:00","listing":{"id":"9","type":"server","name":"S","url":"https://thediscordlist.com/servers/9"},"data":{"ready_at":"2026-10-18T12:00:00+00:00"}}';
+
+        $event = Verifier::verify($body, $this->header($body, self::T), self::SECRET, now: self::T);
+
+        $this->assertSame('listing.bump_ready', $event['event']);
+        $this->assertSame(['ready_at' => '2026-10-18T12:00:00+00:00'], $event['data']);
+    }
+
     /** @return iterable<string, array{string}> */
     public static function blankSecrets(): iterable
     {
