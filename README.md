@@ -298,12 +298,11 @@ enqueue time, not send time, so never use it for freshness.
   suspends and re-probes every 30 minutes rather than disabling: the tier is
   derived per request, so a bot can gain it mid-run.
 - **Rate limits are shared.** The API counts stats and commands against one
-  60/min budget keyed by client IP (heartbeats have their own 120/min). On a
+  60/min budget per bot (heartbeats have their own 120/min). On a
   `429` this package suspends stats and commands for `Retry-After` (or until
   `X-RateLimit-Reset`; 60s without either, at most an hour) plus up to 2s of
   jitter, but keeps heartbeating: a stale number beats a false "down" on your
-  status page. On shared hosting, other bots behind the same egress IP count
-  against you.
+  status page.
 - **`401` disables everything.** One log line, every publisher stops; fix the
   token and call any `postX()` to resume.
 - **`404` never means "bad token".** It means the id is unknown or belongs to a
