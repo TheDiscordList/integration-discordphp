@@ -60,7 +60,7 @@ final class AutoposterTest extends TestCase
         $this->assertSame('{"server_count":3,"shard_count":1}', $stats[0]['raw']);
         $this->assertSame('Bearer tok', $stats[0]['headers']['Authorization']);
         $this->assertSame('application/json', $stats[0]['headers']['Content-Type']);
-        $this->assertSame('TheDiscordList-discordphp/0.1.0 (+https://github.com/TheDiscordList/integration-discordphp)', $stats[0]['headers']['User-Agent']);
+        $this->assertSame('TheDiscordList-discordphp/0.2.0 (+https://github.com/TheDiscordList/integration-discordphp)', $stats[0]['headers']['User-Agent']);
         $this->assertContains(['posted', 'stats', 200, null], $this->events);
     }
 
@@ -105,22 +105,46 @@ final class AutoposterTest extends TestCase
         $this->loop->advance(49);
         $this->assertCount(1, $this->transport->to('heartbeat'));
 
-        $this->loop->advance(2);
+        // 50s, plus up to 5s of jitter.
+        $this->loop->advance(7);
         $this->assertCount(2, $this->transport->to('heartbeat'));
     }
 
-    public function test_connection_loss_and_reconnect_beat_immediately(): void
+    public function test_heartbeats_are_chained_with_up_to_five_seconds_of_jitter(): void
+    {
+        $poster = $this->poster();
+        $at = [];
+        $poster->on('posted', function (string $type) use (&$at): void {
+            if ($type === 'heartbeat') {
+                $at[] = $this->loop->now;
+            }
+        });
+        $this->discord->fireInit();
+        $this->loop->advance(600);
+
+        $gaps = array_map(fn (float $from, float $to): float => $to - $from, array_slice($at, 0, -1), array_slice($at, 1));
+        $this->assertGreaterThan(15, count($gaps));
+        foreach ($gaps as $gap) {
+            $this->assertGreaterThan(29.99, $gap);
+            $this->assertLessThan(35.01, $gap);
+        }
+        $this->assertGreaterThan(1, count(array_unique(array_map('strval', $gaps))));
+    }
+
+    public function test_connection_loss_and_reconnect_beat_10_seconds_after_the_last_beat(): void
     {
         $this->poster();
         $this->discord->fireInit();
         $this->loop->advance(0);
 
         $this->discord->emit('error', [new Exception('socket closed'), $this->discord]);
-        $this->loop->advance(1);
+        $this->loop->advance(9.9);
+        $this->assertCount(1, $this->transport->to('heartbeat'));
+        $this->loop->advance(0.2);
         $this->assertSame('connecting', $this->lastBeat()['status']);
 
         $this->discord->emit('reconnected', [$this->discord]);
-        $this->loop->advance(1);
+        $this->loop->advance(10);
         $this->assertSame('ready', $this->lastBeat()['status']);
         $this->assertCount(3, $this->transport->to('heartbeat'));
     }
@@ -313,14 +337,27 @@ final class AutoposterTest extends TestCase
         $poster = $this->poster();
         $this->discord->fireInit();
 
-        $this->loop->advance(30);
+        $this->loop->advance(35);
         $this->assertCount(1, $this->transport->to('stats'));
         $this->assertSame([], $this->transport->to('commands'));
         $this->assertCount(2, $this->transport->to('heartbeat'));
         $this->assertSame('suspended', $this->settle($poster->postCommands())->skipped);
 
-        $this->loop->advance(98);
+        $this->loop->advance(93);
         $this->assertTrue($this->settle($poster->postCommands())->ok);
+    }
+
+    public function test_429_is_retried_once_its_wait_is_over_if_that_beats_the_next_run(): void
+    {
+        $this->transport->respond('stats', new Response(429, ['Retry-After' => '30']));
+        $this->poster();
+        $this->discord->fireInit();
+
+        $this->loop->advance(34.9);
+        $this->assertCount(1, $this->transport->to('stats'));
+        $this->loop->advance(2.2);
+        $this->assertCount(2, $this->transport->to('stats'));
+        $this->assertContains(['posted', 'stats', 200, null], $this->events);
     }
 
     public function test_5xx_is_retried_with_backoff(): void

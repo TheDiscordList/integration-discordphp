@@ -28,7 +28,7 @@ final class Context
     public array $unavailable = [];
 
     /**
-     * @param  Closure(): float  $clock  Unix seconds.
+     * @param  Closure(): float  $clock  Monotonic seconds.
      * @param  Closure(string, list<mixed>, string): void  $emit  Event name, listener arguments, log line.
      * @param  Closure(): void  $onUnauthorized
      */

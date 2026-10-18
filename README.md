@@ -36,7 +36,7 @@ It starts three publishers:
 | Publisher | What it sends | Cadence |
 | --- | --- | --- |
 | Stats | `server_count`, `shard_count` | 5s after `init`, then every 5 min, debounced 20s on guild join/leave |
-| Heartbeat | this shard's status, gateway latency and guild count | every ~30s, plus 1s after a gateway error or reconnect |
+| Heartbeat | this shard's status, gateway latency and guild count | every 30–35s, plus once after a gateway error or reconnect (at least 10s after the previous beat) |
 | Commands | your global application commands | once, 10s after `init` |
 
 Your **stats token** is on the listing's manage page, under the API tab. It is
@@ -111,7 +111,7 @@ Autoposter::attach($discord, $token, new Options(
     statsMinGap: 60.0,
 
     heartbeat: true,
-    heartbeatInterval: 30.0,                // starting cadence; retuned from the API response
+    heartbeatInterval: 30.0,                // starting cadence, 15–60; retuned from the API response
 
     commands: true,
     postEmptyCommands: false,
@@ -167,8 +167,8 @@ every timer and detaches every listener; `$discord->close()` does the same.
 
 ## Webhooks
 
-The `Webhooks` namespace never touches DiscordPHP or ReactPHP, so it works in
-any PHP application.
+The `Webhooks` namespace never needs DiscordPHP, and needs ReactPHP only when
+your callback returns a promise, so it works in any PHP application.
 
 ### Verifying by hand
 
@@ -180,9 +180,13 @@ try {
     $event = Verifier::verify($rawBody, $signatureHeader, $secret); // tolerance: 300s
 } catch (VerificationException $error) {
     // $error->reason is an ErrorCode: MissingSignature, MalformedSignature,
-    // StaleTimestamp, InvalidSignature or MalformedBody. Answer 400.
+    // StaleTimestamp, InvalidSignature or MalformedBody. Answer 401 for a
+    // missing or invalid signature, 400 otherwise.
 }
 ```
+
+A blank `$secret` throws an `InvalidArgumentException`: nothing could ever
+verify against it.
 
 `$rawBody` must be the exact bytes that arrived. TheDiscordList signs the JSON
 string it sends, so `json_encode($request->all())` escapes slashes and unicode
@@ -237,10 +241,18 @@ $handler = new WebhookHandler(
 );
 ```
 
-It answers `204` once your callback returns, for every event name, `400` when
-verification fails, `405` for anything but POST, and `500` when your callback
-throws so the delivery is retried. It is also invokable, so
+It answers `204` once your callback returns, for every event name, `401` for a
+missing or invalid signature, `400` for any other verification failure, `413`
+for a body over 1 MiB, `405` for anything but POST, and `500` when your
+callback throws so the delivery is retried. A blank secret throws at
+construction. It is also invokable, so
 `new React\Http\HttpServer($loop, $handler)` serves it on the bot's own loop.
+
+Your callback may return a ReactPHP promise. Served by `HttpServer`, the
+handler waits up to 8 seconds for it (`timeout:`): `204` when it fulfils, `500`
+when it rejects, and `202` if it is still running, so the sender's 10-second
+timeout is never hit. A synchronous PSR-15 `handle()` cannot wait and answers
+`202` for any promise. A rejection always reaches `onError`.
 `examples/bot.php` shows the same with `Verifier` alone and no extra packages.
 
 ### Events
@@ -248,6 +260,7 @@ throws so the delivery is retried. It is also invokable, so
 | Event | Fires for | `data` |
 | --- | --- | --- |
 | `listing.bumped` | servers, bots | `points`, `bumped_at`, `next_bump_at`, `user` |
+| `listing.bump_ready` | servers, bots | `ready_at` |
 | `listing.upvoted` | servers, bots | `voted_at`, `total_upvotes`, `user` |
 | `server.joined` | servers only | `joined_at`, `user` |
 | `bot.added` | bots | `added_at`, `user` |
@@ -260,7 +273,8 @@ Every payload carries `id`, `event`, `created_at`, `listing` (`id`, `type`,
 Two of them are not what their names suggest. `bot.added` is a **click** event,
 dispatched on the install hand-off; Discord never tells anyone whether the
 install completed. And `bot.stats_reported` is not an echo of your own POST: it
-also fires when the owner edits the listing in the web UI. `created_at` is
+also fires when the owner edits the listing in the web UI, and on the
+heartbeat's stats forward. `created_at` is
 enqueue time, not send time, so never use it for freshness.
 
 ### Rules for a healthy endpoint
@@ -284,20 +298,21 @@ enqueue time, not send time, so never use it for freshness.
   suspends and re-probes every 30 minutes rather than disabling: the tier is
   derived per request, so a bot can gain it mid-run.
 - **Rate limits are shared.** The API counts stats and commands against one
-  60/min budget keyed by client IP (heartbeats have their own 120/min). On a
+  60/min budget per bot (heartbeats have their own 120/min). On a
   `429` this package suspends stats and commands for `Retry-After` (or until
-  `X-RateLimit-Reset`) plus up to 2s of jitter, but keeps heartbeating: a stale
-  number beats a false "down" on your status page. On shared hosting, other
-  bots behind the same egress IP count against you.
+  `X-RateLimit-Reset`; 60s without either, at most an hour) plus up to 2s of
+  jitter, but keeps heartbeating: a stale number beats a false "down" on your
+  status page.
 - **`401` disables everything.** One log line, every publisher stops; fix the
   token and call any `postX()` to resume.
 - **`404` never means "bad token".** It means the id is unknown or belongs to a
   server listing. That publisher disables itself; set `botId` if your
   application id differs from your bot's user id.
 - **`409` on commands** means the listing is not set up for slash commands.
-- `400`/`422` are logged once per status and not retried; the next run sends
-  fresh data. `5xx`, timeouts and network errors are retried up to 3 attempts
-  with backoff, then wait for the next run.
+- Any other `4xx` but `408` and `425` is logged once per status and not
+  retried; the next run sends fresh data. `408`, `425`, `5xx`, timeouts and
+  network errors are retried up to 3 attempts with backoff, and a `429` once
+  its wait is over, unless the next run comes first.
 - An unchanged count is not re-posted until 30 minutes have passed: every stats
   post fires a `bot.stats_reported` webhook and the server does not dedupe.
 - DiscordPHP evicts a guild from its cache when it goes unavailable during a

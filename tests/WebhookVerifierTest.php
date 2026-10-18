@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace TheDiscordList\DiscordPHP\Tests;
 
+use InvalidArgumentException;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use TheDiscordList\DiscordPHP\Webhooks\ErrorCode;
@@ -137,6 +138,31 @@ final class WebhookVerifierTest extends TestCase
         $body = '{"id":"d2","event":"listing.renamed","created_at":"2026-01-01T00:00:00+00:00","listing":{"id":"1","type":"bot","name":"B","url":"https://thediscordlist.com/bots/1"},"data":{"x":1}}';
 
         $this->assertSame('listing.renamed', Verifier::verify($body, $this->header($body, self::T), self::SECRET, now: self::T)['event']);
+    }
+
+    public function test_bump_ready_parses(): void
+    {
+        $body = '{"id":"d3","event":"listing.bump_ready","created_at":"2026-10-18T12:00:00+00:00","listing":{"id":"9","type":"server","name":"S","url":"https://thediscordlist.com/servers/9"},"data":{"ready_at":"2026-10-18T12:00:00+00:00"}}';
+
+        $event = Verifier::verify($body, $this->header($body, self::T), self::SECRET, now: self::T);
+
+        $this->assertSame('listing.bump_ready', $event['event']);
+        $this->assertSame(['ready_at' => '2026-10-18T12:00:00+00:00'], $event['data']);
+    }
+
+    /** @return iterable<string, array{string}> */
+    public static function blankSecrets(): iterable
+    {
+        yield 'empty' => [''];
+        yield 'whitespace' => ['  '];
+    }
+
+    #[DataProvider('blankSecrets')]
+    public function test_a_blank_secret_is_a_configuration_error(string $secret): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+
+        Verifier::verify(self::BODY, 't='.self::T.',v1='.hash_hmac('sha256', self::T.'.'.self::BODY, $secret), $secret, now: self::T);
     }
 
     public function test_reencoded_body_never_verifies(): void

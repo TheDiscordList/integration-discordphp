@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace TheDiscordList\DiscordPHP\Webhooks;
 
+use InvalidArgumentException;
 use JsonException;
 
 /**
@@ -35,6 +36,7 @@ final class Verifier
      * @return array<string, mixed>
      *
      * @throws VerificationException
+     * @throws InvalidArgumentException When `$secret` is blank: nothing could ever verify.
      */
     public static function verify(
         string $rawBody,
@@ -43,6 +45,7 @@ final class Verifier
         int $tolerance = self::DEFAULT_TOLERANCE,
         ?int $now = null,
     ): array {
+        self::assertSecret($secret);
         if ($header === null || trim($header) === '') {
             throw new VerificationException(ErrorCode::MissingSignature, 'Missing X-TDL-Signature header.');
         }
@@ -88,5 +91,17 @@ final class Verifier
 
         /** @var array<string, mixed> $payload */
         return $payload;
+    }
+
+    /**
+     * @internal
+     *
+     * @throws InvalidArgumentException
+     */
+    public static function assertSecret(string $secret): void
+    {
+        if (trim($secret) === '') {
+            throw new InvalidArgumentException('The TheDiscordList webhook secret is empty. Copy it from the endpoint on the listing\'s Webhooks tab.');
+        }
     }
 }

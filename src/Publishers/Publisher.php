@@ -53,7 +53,7 @@ abstract class Publisher
     /** @return PromiseInterface<PostResult> */
     abstract public function post(): PromiseInterface;
 
-    /** (Re)starts the periodic cadence, if the publisher has one. */
+    /** (Re)starts the cadence, if the publisher has one. */
     abstract protected function resume(): void;
 
     public function stop(): void
@@ -132,9 +132,10 @@ abstract class Publisher
     }
 
     /**
-     * Sends one request, retrying transient failures with backoff. A retry
-     * that would outlast the next scheduled run is dropped: that run carries
-     * fresher data, and a failed request still spends rate-limit budget.
+     * Sends one request, retrying transient failures with backoff and a 429
+     * once its wait is over. A retry that would outlast the next scheduled run
+     * is dropped: that run carries fresher data, and a failed request still
+     * spends rate-limit budget.
      *
      * @param  array<string, mixed>  $body
      * @return PromiseInterface<PostResult>
@@ -147,11 +148,13 @@ abstract class Publisher
 
         return $this->ctx->api->post($path, $body, $heartbeat)->then(
             function (Outcome $outcome) use ($path, $body, $heartbeat, $nextRunIn, $attempt): PromiseInterface|PostResult {
-                if ($outcome->kind === Outcome::TRANSIENT && $attempt < self::MAX_ATTEMPTS - 1) {
-                    $delay = self::backoff($attempt);
-                    if ($nextRunIn === null || $delay < $nextRunIn) {
-                        return $this->sleep($delay)->then(fn () => $this->send($path, $body, $heartbeat, $nextRunIn, $attempt + 1));
-                    }
+                $delay = match ($outcome->kind) {
+                    Outcome::TRANSIENT => self::backoff($attempt),
+                    Outcome::THROTTLED => $this->ctx->api->suspendedFor(),
+                    default => null,
+                };
+                if ($delay !== null && $attempt < self::MAX_ATTEMPTS - 1 && ($nextRunIn === null || $delay < $nextRunIn)) {
+                    return $this->sleep($delay)->then(fn () => $this->send($path, $body, $heartbeat, $nextRunIn, $attempt + 1));
                 }
 
                 return $this->react($outcome);
