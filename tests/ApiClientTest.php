@@ -140,12 +140,24 @@ final class ApiClientTest extends TestCase
     {
         $client = $this->client();
         $this->transport->respond('stats', new Response(429, ['Retry-After' => '86400']));
-        $client->post('/bots/42/stats', []);
 
-        $this->assertGreaterThanOrEqual(3600.0, $client->suspendedFor());
-        $this->assertLessThanOrEqual(3602.0, $client->suspendedFor());
-        $this->now += 3602.1;
-        $this->assertSame(0.0, $client->suspendedFor());
+        $wait = $this->settle($client->post('/bots/42/stats', []))->retryAfter;
+
+        $this->assertGreaterThanOrEqual(3600.0, $wait);
+        $this->assertLessThanOrEqual(3602.0, $wait);
+        $this->now += 3599.0;
+        $this->assertSame(Outcome::DROPPED, $this->settle($client->post('/bots/42/stats', []))->kind);
+        $this->now += 3.1;
+        $this->assertSame(Outcome::OK, $this->settle($client->post('/bots/42/stats', []))->kind);
+    }
+
+    public function test_a_heartbeat_429_carries_its_wait_but_suspends_nothing(): void
+    {
+        $client = $this->client();
+        $this->transport->respond('heartbeat', new Response(429, ['Retry-After' => '30']));
+
+        $this->assertGreaterThanOrEqual(30.0, $this->settle($client->post('/bots/42/heartbeat', [], true))->retryAfter);
+        $this->assertSame(Outcome::OK, $this->settle($client->post('/bots/42/stats', []))->kind);
     }
 
     private function client(string $token = 'tok', string $baseUrl = Autoposter::DEFAULT_BASE_URL): ApiClient

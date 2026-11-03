@@ -6,6 +6,23 @@ All notable changes to this package are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-11-03
+
+### Fixed
+
+- Commands are retried every 5 minutes after a `5xx`, a `429` or a failed fetch
+  from Discord, until they post or get a terminal `4xx`. A manual
+  `postCommands()` no longer waits out a `429` longer than that.
+- A `429` on a heartbeat no longer suspends stats and commands, whose limit is
+  separate.
+- `stop()` ends a retry wait too, so a pending timer no longer keeps the loop
+  alive, and the `postX()` promise behind it resolves with `stopped`.
+
+### Changed
+
+- The release workflow pins its actions to commit SHAs and refuses a tag that is
+  not on `main`.
+
 ## [0.2.0] - 2026-10-18
 
 ### Added
@@ -47,6 +64,7 @@ All notable changes to this package are documented here. The format follows
 - `Webhooks\Verifier::verify()` and the PSR-15 `Webhooks\WebhookHandler`, usable
   without DiscordPHP.
 
-[Unreleased]: https://github.com/TheDiscordList/integration-discordphp/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/TheDiscordList/integration-discordphp/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/TheDiscordList/integration-discordphp/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/TheDiscordList/integration-discordphp/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/TheDiscordList/integration-discordphp/releases/tag/v0.1.0

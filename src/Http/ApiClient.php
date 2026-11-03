@@ -16,17 +16,19 @@ use function React\Promise\resolve;
  * The one HTTP client every publisher shares.
  *
  * It keeps a single client-side 429 suspension because the server counts
- * stats and commands against one per-bot budget. Heartbeats bypass it: a dropped
- * stats post is a stale number, a dropped heartbeat is a false "down" on the
- * public status page.
+ * stats and commands against one per-bot budget. Heartbeats have their own
+ * limiter, so they neither set nor obey it: a dropped stats post is a stale
+ * number, a dropped heartbeat is a false "down" on the public status page.
  *
  * @internal
  */
 final class ApiClient
 {
-    private const DEFAULT_RETRY_AFTER = 60.0;
+    public const DEFAULT_RETRY_AFTER = 60.0;
 
-    private const MAX_RETRY_AFTER = 3600.0;
+    public const MAX_RETRY_AFTER = 3600.0;
+
+    public const RETRY_JITTER = 2.0;
 
     private readonly string $token;
 
@@ -67,7 +69,7 @@ final class ApiClient
             'Accept' => 'application/json',
             'User-Agent' => $this->userAgent,
         ], $json)->then(
-            fn (ResponseInterface $response): Outcome => $this->classify($response),
+            fn (ResponseInterface $response): Outcome => $this->classify($response, $heartbeat),
             fn (Throwable $error): Outcome => new Outcome(Outcome::TRANSIENT, null, [], $error->getMessage()),
         );
     }
@@ -76,7 +78,7 @@ final class ApiClient
      * Server precedence is 404 → 429 → 401 → 422 → 403/409 → 200, so plan state
      * is only inferable from a payload that already validated.
      */
-    private function classify(ResponseInterface $response): Outcome
+    private function classify(ResponseInterface $response, bool $heartbeat): Outcome
     {
         $status = $response->getStatusCode();
 
@@ -91,20 +93,14 @@ final class ApiClient
             $status === 403 => new Outcome(Outcome::PLAN, 403),
             // "Unknown id, or the id is a server listing". Deliberately never "bad token".
             $status === 404, $status === 409 => new Outcome(Outcome::CONFIG, $status),
-            $status === 429 => $this->throttle($response),
+            $status === 429 => $this->throttle($response, $heartbeat),
             // Any other 4xx would fail the same way again; a timeout or "too early" may not.
             $status >= 400 && $status < 500 && $status !== 408 && $status !== 425 => new Outcome(Outcome::PAYLOAD, $status, [], (string) $response->getBody()),
             default => new Outcome(Outcome::TRANSIENT, $status, [], "TheDiscordList responded {$status}."),
         };
     }
 
-    /** Seconds left on the 429 suspension, 0 once it is over. */
-    public function suspendedFor(): float
-    {
-        return max($this->suspendedUntil - ($this->clock)(), 0.0);
-    }
-
-    private function throttle(ResponseInterface $response): Outcome
+    private function throttle(ResponseInterface $response, bool $heartbeat): Outcome
     {
         $retryAfter = $response->getHeaderLine('Retry-After');
         $seconds = is_numeric($retryAfter) && (float) $retryAfter > 0 ? (float) $retryAfter : self::DEFAULT_RETRY_AFTER;
@@ -114,8 +110,11 @@ final class ApiClient
             $seconds = max($seconds, (float) $reset - microtime(true));
         }
 
-        $this->suspendedUntil = ($this->clock)() + min($seconds, self::MAX_RETRY_AFTER) + mt_rand(0, 2000) / 1000;
+        $wait = min($seconds, self::MAX_RETRY_AFTER) + mt_rand(0, (int) (self::RETRY_JITTER * 1000)) / 1000;
+        if (! $heartbeat) {
+            $this->suspendedUntil = ($this->clock)() + $wait;
+        }
 
-        return new Outcome(Outcome::THROTTLED, 429);
+        return new Outcome(Outcome::THROTTLED, 429, retryAfter: $wait);
     }
 }
