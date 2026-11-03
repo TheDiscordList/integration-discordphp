@@ -40,6 +40,9 @@ abstract class Publisher
 
     private ?TimerInterface $pending = null;
 
+    /** @var array<int, array{TimerInterface, Deferred<null>}> */
+    private array $sleeping = [];
+
     /** @var array<int, true> */
     private array $reported = [];
 
@@ -60,6 +63,12 @@ abstract class Publisher
     {
         $this->stopped = true;
         $this->cancelTimers();
+        // A timer left waiting keeps the loop alive, and the post behind it must still resolve.
+        foreach ($this->sleeping as [$timer, $deferred]) {
+            $this->ctx->loop->cancelTimer($timer);
+            $deferred->resolve(null);
+        }
+        $this->sleeping = [];
     }
 
     /** Emits `disabled` once and stops the timers. A manual post re-arms it. */
@@ -229,8 +238,13 @@ abstract class Publisher
     /** @return PromiseInterface<null> */
     private function sleep(float $seconds): PromiseInterface
     {
+        /** @var Deferred<null> $deferred */
         $deferred = new Deferred;
-        $this->ctx->loop->addTimer($seconds, fn () => $deferred->resolve(null));
+        $timer = $this->ctx->loop->addTimer($seconds, function (TimerInterface $timer) use ($deferred): void {
+            unset($this->sleeping[spl_object_id($timer)]);
+            $deferred->resolve(null);
+        });
+        $this->sleeping[spl_object_id($timer)] = [$timer, $deferred];
 
         return $deferred->promise();
     }

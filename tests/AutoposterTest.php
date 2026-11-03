@@ -694,6 +694,19 @@ final class AutoposterTest extends TestCase
         $this->assertSame('stopped', $this->settle($poster->postStats())->skipped);
     }
 
+    public function test_stop_ends_a_retry_wait(): void
+    {
+        $this->transport->respond('stats', new Response(503));
+        $poster = $this->poster();
+        $post = $poster->postStats();
+
+        $poster->stop();
+
+        $this->assertSame(0, $this->loop->timerCount());
+        $this->assertSame('stopped', $this->settle($post)->skipped);
+        $this->assertCount(1, $this->transport->to('stats'));
+    }
+
     public function test_closing_the_client_stops_the_poster(): void
     {
         $this->poster();
