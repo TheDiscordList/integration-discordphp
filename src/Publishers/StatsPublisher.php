@@ -161,8 +161,8 @@ final class StatsPublisher extends Publisher
                     return PostResult::skipped('unmeasurable');
                 }
                 $shardCount = $this->ctx->topology->shardCount;
-                // Every stats post re-indexes the listing and fires a bot.stats_reported
-                // webhook even when nothing moved, and the server does not dedupe.
+                // The server treats an unchanged count as a no-op, so re-sending one
+                // only spends rate budget.
                 if ($count === $this->lastCount && $shardCount === $this->lastShardCount
                     && $this->ctx->now() < $this->lastPostAt + self::FORCE_AFTER) {
                     return PostResult::skipped('unchanged');

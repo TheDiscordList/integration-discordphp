@@ -313,8 +313,8 @@ enqueue time, not send time, so never use it for freshness.
   retried; the next run sends fresh data. `408`, `425`, `5xx`, timeouts and
   network errors are retried up to 3 attempts with backoff, and a `429` once
   its wait is over, unless the next run comes first.
-- An unchanged count is not re-posted until 30 minutes have passed: every stats
-  post fires a `bot.stats_reported` webhook and the server does not dedupe.
+- An unchanged count is not re-posted until 30 minutes have passed: the server
+  treats it as a no-op, so re-sending it only spends rate budget.
 - DiscordPHP evicts a guild from its cache when it goes unavailable during a
   Discord outage. This package keeps counting those guilds until they return,
   so an outage does not publish a dip.
