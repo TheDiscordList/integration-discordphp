@@ -67,15 +67,16 @@ publisher with a clear log line rather than publishing one shard's guilds as
 the total:
 
 ```php
-Autoposter::attach($discord, getenv('TDL_TOKEN'), [
-    'serverCount' => fn () => (int) $redis->get('bot:guilds'), // or a PromiseInterface<int>
+Autoposter::attach($discord, getenv('TDL_TOKEN') ?: null, [
+    // Runs on the bot's event loop: anything that does I/O returns a promise of the int.
+    'serverCount' => fn () => $redis->get('bot:guilds')->then(fn ($guilds) => (int) $guilds),
 ]);
 ```
 
 For a layout the shard options do not describe, name the cluster yourself:
 
 ```php
-Autoposter::attach($discord, getenv('TDL_TOKEN'), [
+Autoposter::attach($discord, getenv('TDL_TOKEN') ?: null, [
     'cluster' => ['id' => (int) getenv('CLUSTER_ID'), 'count' => (int) getenv('CLUSTER_COUNT')],
     'serverCount' => fn () => $bus->sumGuildCounts(),
 ]);
@@ -139,7 +140,7 @@ booting bot reads "connecting" on its status page instead of looking dead.
 use TheDiscordList\DiscordPHP\PublishException;
 use TheDiscordList\DiscordPHP\PostResult;
 
-$poster = Autoposter::attach($discord, getenv('TDL_TOKEN'));
+$poster = Autoposter::attach($discord, getenv('TDL_TOKEN') ?: null);
 
 $poster->on('posted', function (string $type, int $status) {});
 $poster->on('error', function (PublishException $error) {}); // ->type, ->status, ->retryable
@@ -233,7 +234,7 @@ use GuzzleHttp\Psr7\HttpFactory;
 use TheDiscordList\DiscordPHP\Webhooks\WebhookHandler;
 
 $handler = new WebhookHandler(
-    getenv('TDL_WEBHOOK_SECRET'),
+    (string) getenv('TDL_WEBHOOK_SECRET'),
     function (array $event, array $context): void {
         // $context['delivery'] is X-TDL-Delivery, $context['attempt'] is 1-based.
     },
