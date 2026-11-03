@@ -347,6 +347,23 @@ final class AutoposterTest extends TestCase
         $this->assertTrue($this->settle($poster->postCommands())->ok);
     }
 
+    public function test_a_heartbeat_429_waits_for_itself_and_leaves_stats_and_commands_alone(): void
+    {
+        $this->transport->respond('heartbeat', new Response(429, ['Retry-After' => '20']));
+        $this->discord->commandList = [['name' => 'ping']];
+        $this->poster();
+        $this->discord->fireInit();
+
+        $this->loop->advance(10);
+        $this->assertCount(1, $this->transport->to('heartbeat'));
+        $this->assertCount(1, $this->transport->to('stats'));
+        $this->assertCount(1, $this->transport->to('commands'));
+
+        // Retried once its own wait is over, plus up to 2s of jitter.
+        $this->loop->advance(12.1);
+        $this->assertCount(2, $this->transport->to('heartbeat'));
+    }
+
     public function test_429_is_retried_once_its_wait_is_over_if_that_beats_the_next_run(): void
     {
         $this->transport->respond('stats', new Response(429, ['Retry-After' => '30']));

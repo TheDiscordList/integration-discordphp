@@ -150,7 +150,7 @@ abstract class Publisher
             function (Outcome $outcome) use ($path, $body, $heartbeat, $nextRunIn, $attempt): PromiseInterface|PostResult {
                 $delay = match ($outcome->kind) {
                     Outcome::TRANSIENT => self::backoff($attempt),
-                    Outcome::THROTTLED => $this->ctx->api->suspendedFor(),
+                    Outcome::THROTTLED => $outcome->retryAfter,
                     default => null,
                 };
                 if ($delay !== null && $attempt < self::MAX_ATTEMPTS - 1 && ($nextRunIn === null || $delay < $nextRunIn)) {

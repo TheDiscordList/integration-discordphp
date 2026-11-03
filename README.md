@@ -297,12 +297,12 @@ enqueue time, not send time, so never use it for freshness.
 - **Heartbeats need Gold or higher.** On a `403` the heartbeat publisher
   suspends and re-probes every 30 minutes rather than disabling: the tier is
   derived per request, so a bot can gain it mid-run.
-- **Rate limits are shared.** The API counts stats and commands against one
-  60/min budget per bot (heartbeats have their own 120/min). On a
-  `429` this package suspends stats and commands for `Retry-After` (or until
-  `X-RateLimit-Reset`; 60s without either, at most an hour) plus up to 2s of
-  jitter, but keeps heartbeating: a stale number beats a false "down" on your
-  status page.
+- **Stats and commands share a rate limit.** The API counts them against one
+  60/min budget per bot. On a `429` from either this package suspends both for
+  `Retry-After` (or until `X-RateLimit-Reset`; 60s without either, at most an
+  hour) plus up to 2s of jitter. Heartbeats have their own limit and ignore the
+  suspension, since a stale number beats a false "down" on your status page, so
+  a `429` on a heartbeat delays only that heartbeat.
 - **`401` disables everything.** One log line, every publisher stops; fix the
   token and call any `postX()` to resume.
 - **`404` never means "bad token".** It means the id is unknown or belongs to a

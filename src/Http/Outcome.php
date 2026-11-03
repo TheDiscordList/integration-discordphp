@@ -29,11 +29,13 @@ final class Outcome
     /**
      * @param  self::*  $kind
      * @param  array<mixed>  $body
+     * @param  float  $retryAfter  Seconds a 429 asked the client to wait.
      */
     public function __construct(
         public readonly string $kind,
         public readonly ?int $status = null,
         public readonly array $body = [],
         public readonly string $message = '',
+        public readonly float $retryAfter = 0.0,
     ) {}
 }
