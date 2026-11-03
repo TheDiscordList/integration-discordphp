@@ -24,9 +24,11 @@ use function React\Promise\resolve;
  */
 final class ApiClient
 {
-    private const DEFAULT_RETRY_AFTER = 60.0;
+    public const DEFAULT_RETRY_AFTER = 60.0;
 
-    private const MAX_RETRY_AFTER = 3600.0;
+    public const MAX_RETRY_AFTER = 3600.0;
+
+    public const RETRY_JITTER = 2.0;
 
     private readonly string $token;
 
@@ -108,7 +110,7 @@ final class ApiClient
             $seconds = max($seconds, (float) $reset - microtime(true));
         }
 
-        $wait = min($seconds, self::MAX_RETRY_AFTER) + mt_rand(0, 2000) / 1000;
+        $wait = min($seconds, self::MAX_RETRY_AFTER) + mt_rand(0, (int) (self::RETRY_JITTER * 1000)) / 1000;
         if (! $heartbeat) {
             $this->suspendedUntil = ($this->clock)() + $wait;
         }

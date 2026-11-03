@@ -26,7 +26,11 @@ abstract class Publisher
 {
     public const PLAN_REPROBE = 1800.0;
 
-    private const MAX_ATTEMPTS = 3;
+    public const MAX_ATTEMPTS = 3;
+
+    public const BACKOFF_BASE = 1;
+
+    public const BACKOFF_MAX = 30;
 
     protected ?string $disabledReason = null;
 
@@ -232,7 +236,7 @@ abstract class Publisher
     /** Full jitter in the upper half: min(2^attempt, 30) seconds × [0.5, 1.0]. */
     private static function backoff(int $attempt): float
     {
-        return min(2 ** $attempt, 30) * (0.5 + mt_rand() / mt_getrandmax() * 0.5);
+        return min(self::BACKOFF_BASE * 2 ** $attempt, self::BACKOFF_MAX) * (0.5 + mt_rand() / mt_getrandmax() * 0.5);
     }
 
     /** @return PromiseInterface<null> */
