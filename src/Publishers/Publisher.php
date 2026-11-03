@@ -250,7 +250,7 @@ abstract class Publisher
         ($this->ctx->emit)('error', [new PublishException($message, $this->kind(), $status, $retryable, $previous)], $message);
     }
 
-    private function cancelTimers(): void
+    protected function cancelTimers(): void
     {
         foreach ([$this->cadence, $this->pending] as $timer) {
             if ($timer !== null) {

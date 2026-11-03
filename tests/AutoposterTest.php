@@ -503,6 +503,105 @@ final class AutoposterTest extends TestCase
         $this->assertSame('commands: Discord 503', $this->firstError()->getMessage());
     }
 
+    public function test_commands_retry_every_five_minutes_after_5xx_until_they_land(): void
+    {
+        $this->transport->respond('commands', new Response(503), new Response(503), new Response(503), new Response(500), new Response(500), new Response(500));
+        $this->discord->commandList = [['name' => 'ping']];
+        $this->poster();
+        $this->discord->fireInit();
+
+        $this->loop->advance(10 + 4);
+        $this->assertCount(3, $this->transport->to('commands'));
+        $this->loop->advance(297);
+        $this->assertCount(3, $this->transport->to('commands'));
+        $this->loop->advance(7);
+        $this->assertCount(6, $this->transport->to('commands'));
+        $this->loop->advance(310);
+        $this->assertCount(7, $this->transport->to('commands'));
+
+        $this->loop->advance(3600);
+        $this->assertCount(7, $this->transport->to('commands'));
+        $this->assertContains(['posted', 'commands', 200, null], $this->events);
+    }
+
+    public function test_commands_retry_while_the_rate_limit_suspension_lasts(): void
+    {
+        $this->transport->respond('stats', new Response(429, ['Retry-After' => '500']));
+        $this->discord->commandList = [['name' => 'ping']];
+        $this->poster();
+        $this->discord->fireInit();
+
+        $this->loop->advance(10);
+        $this->assertSame([], $this->transport->to('commands'));
+        $this->loop->advance(300);
+        $this->assertSame([], $this->transport->to('commands'));
+        $this->loop->advance(300);
+        $this->assertCount(1, $this->transport->to('commands'));
+    }
+
+    public function test_commands_retry_after_a_429_longer_than_the_retry(): void
+    {
+        $this->transport->respond('commands', new Response(429, ['Retry-After' => '500']));
+        $this->discord->commandList = [['name' => 'ping']];
+        $this->poster();
+        $this->discord->fireInit();
+
+        $this->loop->advance(10);
+        $this->assertCount(1, $this->transport->to('commands'));
+        $this->loop->advance(610);
+        $this->assertCount(2, $this->transport->to('commands'));
+    }
+
+    public function test_commands_retry_after_a_failed_fetch(): void
+    {
+        $this->discord->commandsError = new RuntimeException('Discord 503');
+        $this->discord->commandList = [['name' => 'ping']];
+        $this->poster();
+        $this->discord->fireInit();
+        $this->loop->advance(10);
+        $this->assertSame([], $this->transport->to('commands'));
+
+        $this->discord->commandsError = null;
+        $this->loop->advance(300);
+        $this->assertCount(1, $this->transport->to('commands'));
+    }
+
+    /** @return iterable<string, array{int}> */
+    public static function terminalCommandStatuses(): iterable
+    {
+        yield 'unknown id' => [404];
+        yield 'not a slash command bot' => [409];
+        yield 'rejected payload' => [422];
+    }
+
+    #[DataProvider('terminalCommandStatuses')]
+    public function test_a_terminal_4xx_ends_the_commands_retries(int $status): void
+    {
+        $this->transport->respond('commands', new Response($status));
+        $this->discord->commandList = [['name' => 'ping']];
+        $this->poster();
+        $this->discord->fireInit();
+
+        $this->loop->advance(3600);
+
+        $this->assertCount(1, $this->transport->to('commands'));
+    }
+
+    public function test_a_manual_commands_post_that_lands_cancels_the_pending_retry(): void
+    {
+        $this->discord->commandsError = new RuntimeException('Discord 503');
+        $this->discord->commandList = [['name' => 'ping']];
+        $poster = $this->poster();
+        $this->discord->fireInit();
+        $this->loop->advance(10);
+
+        $this->discord->commandsError = null;
+        $this->assertTrue($this->settle($poster->postCommands())->ok);
+        $this->loop->advance(3600);
+
+        $this->assertCount(1, $this->transport->to('commands'));
+    }
+
     // Stats cadence
 
     public function test_min_gap_holds_a_manual_post_and_sends_it_later(): void

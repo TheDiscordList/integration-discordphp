@@ -37,7 +37,7 @@ It starts three publishers:
 | --- | --- | --- |
 | Stats | `server_count`, `shard_count` | 5s after `init`, then every 5 min, debounced 20s on guild join/leave |
 | Heartbeat | this shard's status, gateway latency and guild count | every 30–35s, plus once after a gateway error or reconnect (at least 10s after the previous beat) |
-| Commands | your global application commands | once, 10s after `init` |
+| Commands | your global application commands | once, 10s after `init`, retried every 5 min after a server error, a rate limit or a failed fetch from Discord |
 
 Your **stats token** is on the listing's manage page, under the API tab. It is
 scoped to one listing, so it is the only credential this package needs.
