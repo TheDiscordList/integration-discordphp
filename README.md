@@ -364,7 +364,7 @@ Each release:
    `Autoposter::VERSION` (it is sent in the `User-Agent`; a test keeps the two in
    step).
 2. Merge to `main` with CI green.
-3. `git tag v0.2.0 && git push origin v0.2.0`. The release workflow checks the
+3. `git tag v0.2.1 && git push origin v0.2.1`. The release workflow checks the
    tag against `Autoposter::VERSION`, runs the suite and creates the GitHub
    release; Packagist picks the tag up through the hook within a minute.
 
