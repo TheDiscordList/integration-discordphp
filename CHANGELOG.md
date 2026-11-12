@@ -6,7 +6,7 @@ All notable changes to this package are documented here. The format follows
 
 ## [Unreleased]
 
-## [0.2.1] - 2026-11-03
+## [0.2.1] - 2026-11-12
 
 ### Fixed
 
@@ -20,8 +20,9 @@ All notable changes to this package are documented here. The format follows
 
 ### Changed
 
-- The release workflow pins its actions to commit SHAs and refuses a tag that is
-  not on `main`.
+- The release workflow refuses a tag that is not on `main`.
+- The test suite runs on PHPUnit 12 and 13 where the PHP version supports them,
+  as well as 11.
 
 ## [0.2.0] - 2026-10-18
 
