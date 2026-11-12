@@ -19,7 +19,7 @@ jobs:
             dependencies: lowest
     name: PHP ${{ matrix.php }} (${{ matrix.dependencies }})
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: shivammathur/setup-php@v2
         with:
           php-version: ${{ matrix.php }}
@@ -38,7 +38,7 @@ jobs:
     name: Sources parse on PHP 8.1
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: shivammathur/setup-php@v2
         with:
           php-version: '8.1'
