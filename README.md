@@ -37,7 +37,7 @@ It starts three publishers:
 | --- | --- | --- |
 | Stats | `server_count`, `shard_count` | 5s after `init`, then every 5 min, debounced 20s on guild join/leave |
 | Heartbeat | this shard's status, gateway latency and guild count | every 30–35s, plus once after a gateway error or reconnect (at least 10s after the previous beat) |
-| Commands | your global application commands | once, 10s after `init` |
+| Commands | your global application commands | once, 10s after `init`, retried every 5 min after a server error, a rate limit or a failed fetch from Discord |
 
 Your **stats token** is on the listing's manage page, under the API tab. It is
 scoped to one listing, so it is the only credential this package needs.
@@ -67,15 +67,16 @@ publisher with a clear log line rather than publishing one shard's guilds as
 the total:
 
 ```php
-Autoposter::attach($discord, getenv('TDL_TOKEN'), [
-    'serverCount' => fn () => (int) $redis->get('bot:guilds'), // or a PromiseInterface<int>
+Autoposter::attach($discord, getenv('TDL_TOKEN') ?: null, [
+    // Runs on the bot's event loop: anything that does I/O returns a promise of the int.
+    'serverCount' => fn () => $redis->get('bot:guilds')->then(fn ($guilds) => (int) $guilds),
 ]);
 ```
 
 For a layout the shard options do not describe, name the cluster yourself:
 
 ```php
-Autoposter::attach($discord, getenv('TDL_TOKEN'), [
+Autoposter::attach($discord, getenv('TDL_TOKEN') ?: null, [
     'cluster' => ['id' => (int) getenv('CLUSTER_ID'), 'count' => (int) getenv('CLUSTER_COUNT')],
     'serverCount' => fn () => $bus->sumGuildCounts(),
 ]);
@@ -139,7 +140,7 @@ booting bot reads "connecting" on its status page instead of looking dead.
 use TheDiscordList\DiscordPHP\PublishException;
 use TheDiscordList\DiscordPHP\PostResult;
 
-$poster = Autoposter::attach($discord, getenv('TDL_TOKEN'));
+$poster = Autoposter::attach($discord, getenv('TDL_TOKEN') ?: null);
 
 $poster->on('posted', function (string $type, int $status) {});
 $poster->on('error', function (PublishException $error) {}); // ->type, ->status, ->retryable
@@ -233,7 +234,7 @@ use GuzzleHttp\Psr7\HttpFactory;
 use TheDiscordList\DiscordPHP\Webhooks\WebhookHandler;
 
 $handler = new WebhookHandler(
-    getenv('TDL_WEBHOOK_SECRET'),
+    (string) getenv('TDL_WEBHOOK_SECRET'),
     function (array $event, array $context): void {
         // $context['delivery'] is X-TDL-Delivery, $context['attempt'] is 1-based.
     },
@@ -297,12 +298,12 @@ enqueue time, not send time, so never use it for freshness.
 - **Heartbeats need Gold or higher.** On a `403` the heartbeat publisher
   suspends and re-probes every 30 minutes rather than disabling: the tier is
   derived per request, so a bot can gain it mid-run.
-- **Rate limits are shared.** The API counts stats and commands against one
-  60/min budget per bot (heartbeats have their own 120/min). On a
-  `429` this package suspends stats and commands for `Retry-After` (or until
-  `X-RateLimit-Reset`; 60s without either, at most an hour) plus up to 2s of
-  jitter, but keeps heartbeating: a stale number beats a false "down" on your
-  status page.
+- **Stats and commands share a rate limit.** The API counts them against one
+  60/min budget per bot. On a `429` from either this package suspends both for
+  `Retry-After` (or until `X-RateLimit-Reset`; 60s without either, at most an
+  hour) plus up to 2s of jitter. Heartbeats have their own limit and ignore the
+  suspension, since a stale number beats a false "down" on your status page, so
+  a `429` on a heartbeat delays only that heartbeat.
 - **`401` disables everything.** One log line, every publisher stops; fix the
   token and call any `postX()` to resume.
 - **`404` never means "bad token".** It means the id is unknown or belongs to a
@@ -313,8 +314,8 @@ enqueue time, not send time, so never use it for freshness.
   retried; the next run sends fresh data. `408`, `425`, `5xx`, timeouts and
   network errors are retried up to 3 attempts with backoff, and a `429` once
   its wait is over, unless the next run comes first.
-- An unchanged count is not re-posted until 30 minutes have passed: every stats
-  post fires a `bot.stats_reported` webhook and the server does not dedupe.
+- An unchanged count is not re-posted until 30 minutes have passed: the server
+  treats it as a no-op, so re-sending it only spends rate budget.
 - DiscordPHP evicts a guild from its cache when it goes unavailable during a
   Discord outage. This package keeps counting those guilds until they return,
   so an outage does not publish a dip.
@@ -363,7 +364,7 @@ Each release:
    `Autoposter::VERSION` (it is sent in the `User-Agent`; a test keeps the two in
    step).
 2. Merge to `main` with CI green.
-3. `git tag v0.2.0 && git push origin v0.2.0`. The release workflow checks the
+3. `git tag v0.2.1 && git push origin v0.2.1`. The release workflow checks the
    tag against `Autoposter::VERSION`, runs the suite and creates the GitHub
    release; Packagist picks the tag up through the hook within a minute.
 

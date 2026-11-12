@@ -26,7 +26,11 @@ abstract class Publisher
 {
     public const PLAN_REPROBE = 1800.0;
 
-    private const MAX_ATTEMPTS = 3;
+    public const MAX_ATTEMPTS = 3;
+
+    public const BACKOFF_BASE = 1;
+
+    public const BACKOFF_MAX = 30;
 
     protected ?string $disabledReason = null;
 
@@ -39,6 +43,9 @@ abstract class Publisher
     private ?TimerInterface $cadence = null;
 
     private ?TimerInterface $pending = null;
+
+    /** @var array<int, array{TimerInterface, Deferred<null>}> */
+    private array $sleeping = [];
 
     /** @var array<int, true> */
     private array $reported = [];
@@ -60,6 +67,12 @@ abstract class Publisher
     {
         $this->stopped = true;
         $this->cancelTimers();
+        // A timer left waiting keeps the loop alive, and the post behind it must still resolve.
+        foreach ($this->sleeping as [$timer, $deferred]) {
+            $this->ctx->loop->cancelTimer($timer);
+            $deferred->resolve(null);
+        }
+        $this->sleeping = [];
     }
 
     /** Emits `disabled` once and stops the timers. A manual post re-arms it. */
@@ -150,7 +163,7 @@ abstract class Publisher
             function (Outcome $outcome) use ($path, $body, $heartbeat, $nextRunIn, $attempt): PromiseInterface|PostResult {
                 $delay = match ($outcome->kind) {
                     Outcome::TRANSIENT => self::backoff($attempt),
-                    Outcome::THROTTLED => $this->ctx->api->suspendedFor(),
+                    Outcome::THROTTLED => $outcome->retryAfter,
                     default => null,
                 };
                 if ($delay !== null && $attempt < self::MAX_ATTEMPTS - 1 && ($nextRunIn === null || $delay < $nextRunIn)) {
@@ -223,14 +236,19 @@ abstract class Publisher
     /** Full jitter in the upper half: min(2^attempt, 30) seconds × [0.5, 1.0]. */
     private static function backoff(int $attempt): float
     {
-        return min(2 ** $attempt, 30) * (0.5 + mt_rand() / mt_getrandmax() * 0.5);
+        return min(self::BACKOFF_BASE * 2 ** $attempt, self::BACKOFF_MAX) * (0.5 + mt_rand() / mt_getrandmax() * 0.5);
     }
 
     /** @return PromiseInterface<null> */
     private function sleep(float $seconds): PromiseInterface
     {
+        /** @var Deferred<null> $deferred */
         $deferred = new Deferred;
-        $this->ctx->loop->addTimer($seconds, fn () => $deferred->resolve(null));
+        $timer = $this->ctx->loop->addTimer($seconds, function (TimerInterface $timer) use ($deferred): void {
+            unset($this->sleeping[spl_object_id($timer)]);
+            $deferred->resolve(null);
+        });
+        $this->sleeping[spl_object_id($timer)] = [$timer, $deferred];
 
         return $deferred->promise();
     }
@@ -250,7 +268,7 @@ abstract class Publisher
         ($this->ctx->emit)('error', [new PublishException($message, $this->kind(), $status, $retryable, $previous)], $message);
     }
 
-    private function cancelTimers(): void
+    protected function cancelTimers(): void
     {
         foreach ([$this->cadence, $this->pending] as $timer) {
             if ($timer !== null) {

@@ -60,7 +60,7 @@ final class AutoposterTest extends TestCase
         $this->assertSame('{"server_count":3,"shard_count":1}', $stats[0]['raw']);
         $this->assertSame('Bearer tok', $stats[0]['headers']['Authorization']);
         $this->assertSame('application/json', $stats[0]['headers']['Content-Type']);
-        $this->assertSame('TheDiscordList-discordphp/0.2.0 (+https://github.com/TheDiscordList/integration-discordphp)', $stats[0]['headers']['User-Agent']);
+        $this->assertSame('TheDiscordList-discordphp/0.2.1 (+https://github.com/TheDiscordList/integration-discordphp)', $stats[0]['headers']['User-Agent']);
         $this->assertContains(['posted', 'stats', 200, null], $this->events);
     }
 
@@ -347,6 +347,23 @@ final class AutoposterTest extends TestCase
         $this->assertTrue($this->settle($poster->postCommands())->ok);
     }
 
+    public function test_a_heartbeat_429_waits_for_itself_and_leaves_stats_and_commands_alone(): void
+    {
+        $this->transport->respond('heartbeat', new Response(429, ['Retry-After' => '20']));
+        $this->discord->commandList = [['name' => 'ping']];
+        $this->poster();
+        $this->discord->fireInit();
+
+        $this->loop->advance(10);
+        $this->assertCount(1, $this->transport->to('heartbeat'));
+        $this->assertCount(1, $this->transport->to('stats'));
+        $this->assertCount(1, $this->transport->to('commands'));
+
+        // Retried once its own wait is over, plus up to 2s of jitter.
+        $this->loop->advance(12.1);
+        $this->assertCount(2, $this->transport->to('heartbeat'));
+    }
+
     public function test_429_is_retried_once_its_wait_is_over_if_that_beats_the_next_run(): void
     {
         $this->transport->respond('stats', new Response(429, ['Retry-After' => '30']));
@@ -486,6 +503,105 @@ final class AutoposterTest extends TestCase
         $this->assertSame('commands: Discord 503', $this->firstError()->getMessage());
     }
 
+    public function test_commands_retry_every_five_minutes_after_5xx_until_they_land(): void
+    {
+        $this->transport->respond('commands', new Response(503), new Response(503), new Response(503), new Response(500), new Response(500), new Response(500));
+        $this->discord->commandList = [['name' => 'ping']];
+        $this->poster();
+        $this->discord->fireInit();
+
+        $this->loop->advance(10 + 4);
+        $this->assertCount(3, $this->transport->to('commands'));
+        $this->loop->advance(297);
+        $this->assertCount(3, $this->transport->to('commands'));
+        $this->loop->advance(7);
+        $this->assertCount(6, $this->transport->to('commands'));
+        $this->loop->advance(310);
+        $this->assertCount(7, $this->transport->to('commands'));
+
+        $this->loop->advance(3600);
+        $this->assertCount(7, $this->transport->to('commands'));
+        $this->assertContains(['posted', 'commands', 200, null], $this->events);
+    }
+
+    public function test_commands_retry_while_the_rate_limit_suspension_lasts(): void
+    {
+        $this->transport->respond('stats', new Response(429, ['Retry-After' => '500']));
+        $this->discord->commandList = [['name' => 'ping']];
+        $this->poster();
+        $this->discord->fireInit();
+
+        $this->loop->advance(10);
+        $this->assertSame([], $this->transport->to('commands'));
+        $this->loop->advance(300);
+        $this->assertSame([], $this->transport->to('commands'));
+        $this->loop->advance(300);
+        $this->assertCount(1, $this->transport->to('commands'));
+    }
+
+    public function test_commands_retry_after_a_429_longer_than_the_retry(): void
+    {
+        $this->transport->respond('commands', new Response(429, ['Retry-After' => '500']));
+        $this->discord->commandList = [['name' => 'ping']];
+        $this->poster();
+        $this->discord->fireInit();
+
+        $this->loop->advance(10);
+        $this->assertCount(1, $this->transport->to('commands'));
+        $this->loop->advance(610);
+        $this->assertCount(2, $this->transport->to('commands'));
+    }
+
+    public function test_commands_retry_after_a_failed_fetch(): void
+    {
+        $this->discord->commandsError = new RuntimeException('Discord 503');
+        $this->discord->commandList = [['name' => 'ping']];
+        $this->poster();
+        $this->discord->fireInit();
+        $this->loop->advance(10);
+        $this->assertSame([], $this->transport->to('commands'));
+
+        $this->discord->commandsError = null;
+        $this->loop->advance(300);
+        $this->assertCount(1, $this->transport->to('commands'));
+    }
+
+    /** @return iterable<string, array{int}> */
+    public static function terminalCommandStatuses(): iterable
+    {
+        yield 'unknown id' => [404];
+        yield 'not a slash command bot' => [409];
+        yield 'rejected payload' => [422];
+    }
+
+    #[DataProvider('terminalCommandStatuses')]
+    public function test_a_terminal_4xx_ends_the_commands_retries(int $status): void
+    {
+        $this->transport->respond('commands', new Response($status));
+        $this->discord->commandList = [['name' => 'ping']];
+        $this->poster();
+        $this->discord->fireInit();
+
+        $this->loop->advance(3600);
+
+        $this->assertCount(1, $this->transport->to('commands'));
+    }
+
+    public function test_a_manual_commands_post_that_lands_cancels_the_pending_retry(): void
+    {
+        $this->discord->commandsError = new RuntimeException('Discord 503');
+        $this->discord->commandList = [['name' => 'ping']];
+        $poster = $this->poster();
+        $this->discord->fireInit();
+        $this->loop->advance(10);
+
+        $this->discord->commandsError = null;
+        $this->assertTrue($this->settle($poster->postCommands())->ok);
+        $this->loop->advance(3600);
+
+        $this->assertCount(1, $this->transport->to('commands'));
+    }
+
     // Stats cadence
 
     public function test_min_gap_holds_a_manual_post_and_sends_it_later(): void
@@ -576,6 +692,19 @@ final class AutoposterTest extends TestCase
         $this->assertSame(0, $this->loop->timerCount());
         $this->assertSame([], $this->discord->listeners('GUILD_CREATE'));
         $this->assertSame('stopped', $this->settle($poster->postStats())->skipped);
+    }
+
+    public function test_stop_ends_a_retry_wait(): void
+    {
+        $this->transport->respond('stats', new Response(503));
+        $poster = $this->poster();
+        $post = $poster->postStats();
+
+        $poster->stop();
+
+        $this->assertSame(0, $this->loop->timerCount());
+        $this->assertSame('stopped', $this->settle($post)->skipped);
+        $this->assertCount(1, $this->transport->to('stats'));
     }
 
     public function test_closing_the_client_stops_the_poster(): void
